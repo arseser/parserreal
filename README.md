@@ -34,15 +34,31 @@ export TELEGRAM_BOT_TOKEN="ваш_токен_от_BotFather"   # Windows: set TE
 python bot.py
 ```
 
-## Деплой на Render
+## Деплой на Render (free plan)
 
-1. Залейте проект в GitHub-репозиторий.
-2. Render → **New** → **Background Worker** (не Web Service — боту на polling
-   не нужен открытый HTTP-порт).
-3. Build Command: `pip install -r requirements.txt`
-4. Start Command: `python bot.py`
-5. В Environment → добавьте переменную `TELEGRAM_BOT_TOKEN`.
-6. Deploy.
+Free-тариф Render не даёт Background Worker, только **Web Service** —
+поэтому в `bot.py` встроен маленький Flask-сервер, который просто отвечает
+"OK" на порту, который Render передаёт через переменную `PORT`. Сам бот
+как работал через long polling, так и работает — в отдельном потоке.
+
+1. Залейте проект в GitHub-репозиторий (файлы `bot.py`, `parser.py`,
+   `config.py`, `requirements.txt` — обязательно **в корне** репозитория,
+   не во вложенной папке).
+2. Render → **New** → **Web Service**, подключите репозиторий.
+3. Runtime: Python 3.
+4. Build Command: `pip install -r requirements.txt`
+5. Start Command: `python bot.py`
+6. Environment → добавьте переменную `TELEGRAM_BOT_TOKEN` (значение — токен
+   от BotFather).
+7. Deploy.
+
+**Про "спин-даун" на free-плане.** Render усыпляет бесплатный Web Service
+после ~15 минут без HTTP-запросов на его URL. Наш бот всё равно продолжит
+получать сообщения через Telegram polling, пока не уснёт процесс целиком —
+то есть первое сообщение после долгого простоя может прийти с задержкой
+~50 секунд (это время холодного старта). Если это критично, можно каждые
+10-14 минут дёргать `https://ваш-сервис.onrender.com/` бесплатным
+пинг-сервисом (например, UptimeRobot) — тогда сервис не будет засыпать.
 
 ## Деплой на Railway
 

@@ -1,65 +1,63 @@
---- sent_ads_storage.py (原始)
-
-
-+++ sent_ads_storage.py (修改后)
 """
-Хранилище уже отправленных объявлений (по URL).
-Используется в режиме мониторинга, чтобы не дублировать объявления.
-
-Хранение — в файле sent_ads.json в рабочей директории.
-Формат: { chat_id: [url1, url2, ...], ... }
+Хранилище уже отправленных объявлений для предотвращения дублей.
+Использует SQLite базу данных.
 """
-import json
-import os
-from threading import Lock
-
-FILE_PATH = os.path.join(os.getcwd(), "sent_ads.json")
-_lock = Lock()
+import sqlite3
+import threading
+from pathlib import Path
 
 
-def _load() -> dict:
-    if not os.path.exists(FILE_PATH):
-        return {}
-    try:
-        with open(FILE_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            # конвертируем списки обратно в множества для быстрого поиска
-            return {int(k): set(v) for k, v in data.items()}
-    except (json.JSONDecodeError, IOError):
-        return {}
+DB_PATH = Path("sent_ads.db")
+_DB_LOCK = threading.Lock()
 
 
-def _save(data: dict) -> None:
-    # конвертируем множества обратно в списки для JSON
-    serializable = {str(k): list(v) for k, v in data.items()}
-    with open(FILE_PATH, "w", encoding="utf-8") as f:
-        json.dump(serializable, f, ensure_ascii=False, indent=2)
+def init_db():
+    """Инициализирует таблицу в базе данных."""
+    with _DB_LOCK:
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS sent_ads (
+                chat_id INTEGER NOT NULL,
+                url TEXT NOT NULL,
+                PRIMARY KEY (chat_id, url)
+            )
+        """)
+        conn.commit()
+        conn.close()
 
 
 def get_seen_urls(chat_id: int) -> set:
-    """Вернуть множество URL объявлений, которые уже были отправлены в этот чат."""
-    with _lock:
-        data = _load()
-        return data.get(chat_id, set())
+    """
+    Возвращает множество URL уже отправленных объявлений для данного чата.
+    """
+    with _DB_LOCK:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT url FROM sent_ads WHERE chat_id = ?",
+            (chat_id,)
+        )
+        urls = {row[0] for row in cursor.fetchall()}
+        conn.close()
+        return urls
 
 
-def add_seen_urls(chat_id: int, urls: list) -> None:
-    """Добавить URL объявлений в список уже отправленных для этого чата."""
-    with _lock:
-        data = _load()
-        if chat_id not in data:
-            data[chat_id] = set()
-        data[chat_id].update(urls)
-        # ограничиваем размер множества, чтобы файл не рос бесконечно
-        if len(data[chat_id]) > 500:
-            data[chat_id] = set(list(data[chat_id])[-300:])
-        _save(data)
+def add_seen_urls(chat_id: int, urls: list):
+    """
+    Добавляет URL отправленных объявлений в базу данных.
+    """
+    if not urls:
+        return
+    with _DB_LOCK:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        data = [(chat_id, url) for url in urls]
+        cursor.executemany(
+            "INSERT OR IGNORE INTO sent_ads (chat_id, url) VALUES (?, ?)",
+            data
+        )
+        conn.commit()
+        conn.close()
 
 
-def clear_seen_urls(chat_id: int) -> None:
-    """Очистить список отправленных объявлений для чата."""
-    with _lock:
-        data = _load()
-        if chat_id in data:
-            del data[chat_id]
-            _save(data)
+init_db()

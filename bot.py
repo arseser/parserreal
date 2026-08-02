@@ -184,6 +184,10 @@ def run_bot_with_restart():
     """infinity_polling иногда падает на сетевых сбоях — перезапускаем в цикле."""
     while True:
         try:
+            # на случай, если для этого токена где-то остался webhook или
+            # зависшая сессия getUpdates — сбрасываем перед стартом polling
+            bot.remove_webhook()
+            time.sleep(1)
             log.info("Бот запускается (long polling)...")
             bot.infinity_polling(timeout=30, long_polling_timeout=30)
         except Exception as e:
